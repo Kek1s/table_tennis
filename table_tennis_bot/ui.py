@@ -32,7 +32,6 @@ BRACKET_LABELS = {
     "winners": "Верхняя сетка",
     "losers": "Нижняя сетка",
     "grand_final": "Гранд-финал",
-    "grand_final_reset": "Решающая переигровка",
 }
 
 
@@ -309,13 +308,19 @@ def render_participants(tournament, players: list) -> str:
         lines.append("Пока никого нет.")
     else:
         for index, player in enumerate(players, start=1):
-            marker = "🤖" if player["telegram_id"] is not None else "👤"
-            lines.append(f"{index}. {marker} {escape(player['display_name'])}")
+            is_authorized = (
+                player["telegram_id"] is not None and not bool(player["is_test"])
+            )
+            marker = "🤖" if is_authorized else "👤"
+            rating = f" · рейтинг {player['rating']}" if is_authorized else ""
+            lines.append(
+                f"{index}. {marker} {escape(player['display_name'])}{rating}"
+            )
     lines.extend(
         [
             "",
-            "🤖 — зарегистрирован через бота",
-            "👤 — добавлен администратором вручную",
+            "🤖 — авторизован через Telegram, участвует в рейтинге",
+            "👤 — гость без рейтинга",
         ]
     )
     return _fit_lines(lines)

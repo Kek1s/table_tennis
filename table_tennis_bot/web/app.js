@@ -6,6 +6,8 @@ const toastRoot = document.querySelector("#toast-root");
 const state = {
   user: null,
   tournaments: [],
+  ratings: [],
+  ratingSystem: null,
   current: null,
   tab: "bracket",
   maxPlayers: 32,
@@ -22,7 +24,7 @@ const formatMeta = {
     label: "Double Elimination",
     short: "Double",
     icon: "♻️",
-    description: "Второй шанс через нижнюю сетку",
+    description: "Второй шанс через нижнюю сетку и один гранд-финал",
   },
   round_robin: {
     label: "Круговой турнир",
@@ -36,13 +38,6 @@ const statusMeta = {
   registration: { label: "Набор игроков", className: "" },
   active: { label: "Идёт турнир", className: "live" },
   finished: { label: "Завершён", className: "done" },
-};
-
-const bracketNames = {
-  winners: "Верхняя сетка",
-  losers: "Нижняя сетка",
-  grand_final: "Гранд-финал",
-  grand_final_reset: "Переигровка",
 };
 
 function escapeHtml(value = "") {
@@ -67,8 +62,6 @@ function authHeaders() {
   const headers = { "Content-Type": "application/json" };
   if (tg?.initData) {
     headers["X-Telegram-Init-Data"] = tg.initData;
-  } else if (["localhost", "127.0.0.1"].includes(location.hostname)) {
-    headers["X-Dev-User-Id"] = "900000001";
   }
   return headers;
 }
@@ -98,8 +91,8 @@ function notify(message, type = "") {
 
 function openSheet(content) {
   sheetRoot.innerHTML = `
-    <div class="sheet-backdrop" data-action="close-sheet">
-      <section class="sheet" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+    <div class="sheet-backdrop" data-sheet-backdrop>
+      <section class="sheet" role="dialog" aria-modal="true">
         <div class="sheet-handle"></div>
         ${content}
       </section>
@@ -152,6 +145,48 @@ function tournamentCard(tournament) {
   `;
 }
 
+function signedRating(value) {
+  const number = Number(value);
+  return `${number > 0 ? "+" : ""}${number}`;
+}
+
+function renderRatingBoard() {
+  if (!state.ratings.length) {
+    return `
+      <section class="rating-empty">
+        <span>📈</span>
+        <div>
+          <strong>Рейтинг появится после турнира</strong>
+          <small>В нём участвуют только игроки, вошедшие через Telegram.</small>
+        </div>
+      </section>
+    `;
+  }
+  return `
+    <section class="rating-board">
+      ${state.ratings
+        .slice(0, 20)
+        .map(
+          (player) => `
+            <article class="rating-row ${player.is_current ? "current" : ""}">
+              <span class="rating-rank">${player.rank <= 3 ? ["🥇", "🥈", "🥉"][player.rank - 1] : player.rank}</span>
+              <span class="rating-player">
+                <strong>${escapeHtml(player.display_name)}</strong>
+                <small>${player.rated_games ? `рейтинговых матчей: ${player.rated_games}` : "новый игрок"}</small>
+              </span>
+              <strong class="rating-points">${player.rating}</strong>
+            </article>
+          `,
+        )
+        .join("")}
+    </section>
+    <p class="rating-note">
+      Турнирный Elo: старт ${state.ratingSystem?.initial || 1500}. Матч учитывается,
+      только если оба игрока авторизованы через Telegram.
+    </p>
+  `;
+}
+
 function renderHome() {
   state.current = null;
   state.tab = "bracket";
@@ -182,6 +217,13 @@ function renderHome() {
             Здесь появится ваш первый турнир.<br />Создайте его за пару касаний.
           </section>`
     }
+    <div class="section-head rating-heading">
+      <div>
+        <p class="eyebrow">TOURNAMENT ELO</p>
+        <h2>Рейтинг игроков</h2>
+      </div>
+    </div>
+    ${renderRatingBoard()}
     <button class="floating-button" data-action="create-tournament">
       <span>＋</span> Новый турнир
     </button>
@@ -216,18 +258,25 @@ function roundTitle(round, totalRounds) {
 
 function matchCard(match, canManage, finalColumn = false) {
   const selectable = canManage && match.status === "ready";
+  const editable = canManage && match.status === "finished";
+  const interactive = selectable || editable;
+  const displayPosition = ["winners", "losers", "grand_final"].includes(
+    match.bracket,
+  )
+    ? match.bracket_position || match.position
+    : match.position;
   const winner1 = match.winner_id && match.winner_id === match.player1_id;
   const winner2 = match.winner_id && match.winner_id === match.player2_id;
   const stateLabel = {
     ready: "Готов к игре",
-    finished: "Матч завершён",
+    finished: editable ? "Нажмите, чтобы исправить" : "Матч завершён",
     bye: "Проход без игры",
     pending: "Ожидает соперников",
   }[match.status];
   return `
     <article
-      class="match-card ${selectable ? "selectable" : ""}"
-      ${selectable ? `data-match="${match.id}"` : ""}
+      class="match-card ${selectable ? "selectable" : ""} ${editable ? "editable" : ""}"
+      ${interactive ? `data-match="${match.id}" role="button" tabindex="0"` : ""}
       ${finalColumn ? 'data-final="true"' : ""}
     >
       <div class="player-slot ${winner1 ? "winner" : ""}">
@@ -238,8 +287,8 @@ function matchCard(match, canManage, finalColumn = false) {
         <span>${escapeHtml(match.player2_name || (match.status === "bye" ? "Пропуск" : "Ожидается"))}</span>
         <span>${winner2 ? "✓" : ""}</span>
       </div>
-      <div class="match-state ${match.status === "ready" ? "ready" : ""}">
-        <span>${stateLabel}</span><span>#${match.position}</span>
+      <div class="match-state ${match.status === "ready" ? "ready" : ""} ${editable ? "editable" : ""}">
+        <span>${stateLabel}</span><span>#${displayPosition}</span>
       </div>
     </article>
   `;
@@ -270,20 +319,42 @@ function renderSingleBracket(payload) {
 }
 
 function doubleLane(payload, title, className, brackets) {
-  const filtered = payload.matches.filter((match) => brackets.includes(match.bracket));
+  const filtered = payload.matches.filter(
+    (match) =>
+      brackets.includes(match.bracket) &&
+      !(match.status === "bye" && !match.player1_id && !match.player2_id),
+  );
   if (!filtered.length) return "";
-  const stages = [...new Set(filtered.map((match) => match.round_number))];
+  const rounds = [
+    ...new Set(
+      filtered.map(
+        (match) => `${match.bracket}:${match.bracket_round || match.round_number}`,
+      ),
+    ),
+  ];
   return `
     <section class="lane ${className}">
       <h3 class="lane-title">${title}</h3>
       <div class="bracket-wrap">
         <div class="bracket-scroll">
-          ${stages
-            .map((stage) => {
-              const stageMatches = filtered.filter((match) => match.round_number === stage);
+          ${rounds
+            .map((roundKey) => {
+              const [roundBracket, rawRound] = roundKey.split(":");
+              const bracketRound = Number(rawRound);
+              const stageMatches = filtered.filter(
+                (match) =>
+                  match.bracket === roundBracket &&
+                  Number(match.bracket_round || match.round_number) === bracketRound,
+              );
+              const isGrandFinal = stageMatches.some(
+                (match) => match.bracket === "grand_final",
+              );
               return `
-                <section class="round-column">
-                  <div class="round-heading">Этап ${stage}<span>${stageMatches.length}</span></div>
+                <section class="round-column ${isGrandFinal ? "grand-final-column" : ""}">
+                  <div class="round-heading">
+                    ${isGrandFinal ? "Гранд-финал" : `Раунд ${bracketRound}`}
+                    <span>${stageMatches.length}</span>
+                  </div>
                   <div class="match-stack">
                     ${stageMatches
                       .map((match) => matchCard(match, payload.tournament.can_manage))
@@ -302,9 +373,8 @@ function doubleLane(payload, title, className, brackets) {
 function renderDoubleBracket(payload) {
   if (!payload.matches.length) return renderWaitingBracket(payload);
   return `
-    ${doubleLane(payload, "Верхняя сетка", "winners", ["winners"])}
+    ${doubleLane(payload, "Верхняя сетка", "winners", ["winners", "grand_final"])}
     ${doubleLane(payload, "Нижняя сетка", "losers", ["losers"])}
-    ${doubleLane(payload, "Финальная серия", "finals", ["grand_final", "grand_final_reset"])}
   `;
 }
 
@@ -375,7 +445,18 @@ function renderPlayers(payload) {
               <span>
                 <strong>${escapeHtml(player.display_name)}</strong>
                 <small>
-                  ${player.telegram_id ? "Зарегистрирован" : "Добавлен вручную"}
+                  ${
+                    player.is_authorized
+                      ? `Рейтинг: ${player.rating}`
+                      : player.telegram_id
+                        ? "Локальный тестовый профиль · без рейтинга"
+                        : "Добавлен вручную · без рейтинга"
+                  }
+                  ${
+                    player.rating_delta !== null
+                      ? ` · ${signedRating(player.rating_delta)} за турнир`
+                      : ""
+                  }
                   ${
                     payload.tournament.format === "double_elimination" &&
                     payload.tournament.status !== "registration"
@@ -420,6 +501,11 @@ function renderTournament() {
         <h1>${escapeHtml(tournament.name)}</h1>
         <p>${format.label}</p>
       </div>
+      ${
+        tournament.can_manage
+          ? `<button class="delete-tournament-button" data-action="delete-tournament" aria-label="Удалить турнир" title="Удалить турнир">🗑</button>`
+          : ""
+      }
       <span class="badge ${status.className}">${status.label}</span>
     </header>
     ${
@@ -532,15 +618,24 @@ async function showAddPlayer() {
 function showWinner(matchId) {
   const match = state.current.matches.find((item) => item.id === Number(matchId));
   if (!match) return;
+  const isEditing = match.status === "finished";
   openSheet(`
-    <h2>Кто победил?</h2>
-    <p class="sheet-description">После подтверждения сетка обновится автоматически.</p>
+    <h2>${isEditing ? "Исправить выбор?" : "Кто победил?"}</h2>
+    <p class="sheet-description">
+      ${
+        isEditing
+          ? "Исправьте случайно выбранного победителя. Уже записанные более поздние матчи удаляться не будут."
+          : "После подтверждения сетка обновится автоматически."
+      }
+    </p>
     <div class="winner-options">
-      <button class="winner-option" data-winner="${match.player1_id}" data-match-id="${match.id}">
-        ${escapeHtml(match.player1_name)} <span>🏆</span>
+      <button class="winner-option ${match.winner_id === match.player1_id ? "current-winner" : ""}" data-winner="${match.player1_id}" data-match-id="${match.id}">
+        ${escapeHtml(match.player1_name)}
+        <span>${match.winner_id === match.player1_id ? "Сейчас ✓" : "🏆"}</span>
       </button>
-      <button class="winner-option" data-winner="${match.player2_id}" data-match-id="${match.id}">
-        ${escapeHtml(match.player2_name)} <span>🏆</span>
+      <button class="winner-option ${match.winner_id === match.player2_id ? "current-winner" : ""}" data-winner="${match.player2_id}" data-match-id="${match.id}">
+        ${escapeHtml(match.player2_name)}
+        <span>${match.winner_id === match.player2_id ? "Сейчас ✓" : "🏆"}</span>
       </button>
     </div>
     <button class="secondary-button" data-action="close-sheet">Отмена</button>
@@ -550,19 +645,24 @@ function showWinner(matchId) {
 function showWinnerConfirmation(matchId, winnerId) {
   const match = state.current.matches.find((item) => item.id === Number(matchId));
   if (!match) return;
+  const isEditing = match.status === "finished";
   const winnerName =
     Number(winnerId) === Number(match.player1_id)
       ? match.player1_name
       : match.player2_name;
   openSheet(`
-    <h2>Подтвердить результат?</h2>
+    <h2>${isEditing ? "Подтвердить исправление?" : "Подтвердить результат?"}</h2>
     <p class="sheet-description">
       Победитель матча — <strong>${escapeHtml(winnerName)}</strong>.
-      Изменить результат после сохранения нельзя.
+      ${
+        isEditing
+          ? "Это исправит выбранного победителя без переигровки матча."
+          : "Позже результат можно будет изменить нажатием на завершённый матч."
+      }
     </p>
     <div class="sheet-actions">
-      <button class="primary-button" data-record-winner="${winnerId}" data-match-id="${matchId}">
-        Записать победу
+      <button class="primary-button" data-save-winner="${winnerId}" data-match-id="${matchId}" data-editing="${isEditing ? "true" : "false"}">
+        ${isEditing ? "Исправить выбор" : "Записать победу"}
       </button>
       <button class="secondary-button" data-action="close-sheet">Отмена</button>
     </div>
@@ -599,10 +699,34 @@ function showStartConfirmation() {
   `);
 }
 
+function showDeleteTournamentConfirmation() {
+  const tournament = state.current.tournament;
+  openSheet(`
+    <h2>Удалить турнир?</h2>
+    <p class="sheet-description">
+      <strong>${escapeHtml(tournament.name)}</strong>, его сетка и все результаты
+      будут удалены с этого компьютера. Отменить это действие нельзя.
+    </p>
+    <div class="sheet-actions">
+      <button class="danger-button" data-confirm-delete-tournament="${tournament.id}">
+        Удалить турнир
+      </button>
+      <button class="secondary-button" data-action="close-sheet">Отмена</button>
+    </div>
+  `);
+}
+
 function showProfile() {
+  const ratingText = state.user.is_authorized
+    ? `<div class="profile-rating">
+        <span><small>РЕЙТИНГ</small><strong>${state.user.rating}</strong></span>
+        <span><small>МАТЧЕЙ</small><strong>${state.user.rated_games}</strong></span>
+      </div>`
+    : `<p class="sheet-description">Локальный тестовый профиль не участвует в рейтинге.</p>`;
   openSheet(`
     <h2>Профиль игрока</h2>
     <p class="sheet-description">Это имя отображается во всех турнирных сетках.</p>
+    ${ratingText}
     <form id="profile-form">
       <div class="field">
         <label for="profile-name">Имя</label>
@@ -631,10 +755,18 @@ async function reloadBootstrap() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
   state.tournaments = payload.tournaments;
+  state.ratings = payload.ratings;
+  state.ratingSystem = payload.rating_system;
   state.maxPlayers = payload.max_players;
 }
 
 document.addEventListener("click", async (event) => {
+  const sheetBackdrop = event.target.closest("[data-sheet-backdrop]");
+  if (sheetBackdrop && event.target === sheetBackdrop) {
+    closeSheet();
+    return;
+  }
+
   const tournamentButton = event.target.closest("[data-tournament]");
   if (tournamentButton) {
     await loadTournament(tournamentButton.dataset.tournament);
@@ -710,22 +842,44 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  const recordWinnerButton = event.target.closest("[data-record-winner]");
-  if (recordWinnerButton) {
+  const saveWinnerButton = event.target.closest("[data-save-winner]");
+  if (saveWinnerButton) {
+    const isEditing = saveWinnerButton.dataset.editing === "true";
     try {
       state.current = await api(
-        `/api/matches/${recordWinnerButton.dataset.matchId}/winner`,
+        `/api/matches/${saveWinnerButton.dataset.matchId}/winner`,
         {
-          method: "POST",
+          method: isEditing ? "PATCH" : "POST",
           body: JSON.stringify({
-            winner_id: Number(recordWinnerButton.dataset.recordWinner),
+            winner_id: Number(saveWinnerButton.dataset.saveWinner),
           }),
         },
       );
       closeSheet();
       haptic("heavy");
       renderTournament();
-      notify("Результат записан");
+      notify(isEditing ? "Выбор исправлен" : "Результат записан");
+    } catch (error) {
+      notify(error.message, "error");
+    }
+    return;
+  }
+
+  const confirmDeleteTournament = event.target.closest(
+    "[data-confirm-delete-tournament]",
+  );
+  if (confirmDeleteTournament) {
+    try {
+      await api(
+        `/api/tournaments/${confirmDeleteTournament.dataset.confirmDeleteTournament}`,
+        { method: "DELETE" },
+      );
+      closeSheet();
+      state.current = null;
+      await reloadBootstrap();
+      haptic("heavy");
+      renderHome();
+      notify("Турнир удалён");
     } catch (error) {
       notify(error.message, "error");
     }
@@ -738,6 +892,7 @@ document.addEventListener("click", async (event) => {
   if (action === "create-tournament") showCreateTournament();
   if (action === "add-player") await showAddPlayer();
   if (action === "start-tournament") showStartConfirmation();
+  if (action === "delete-tournament") showDeleteTournamentConfirmation();
   if (action === "profile") showProfile();
   if (action === "home") {
     await reloadBootstrap();

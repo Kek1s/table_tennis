@@ -216,7 +216,8 @@ h2 {
 
 .avatar,
 .icon-button,
-.back-button {
+.back-button,
+.delete-tournament-button {
   display: grid;
   width: 42px;
   height: 42px;
@@ -226,6 +227,13 @@ h2 {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.055);
   cursor: pointer;
+}
+
+.delete-tournament-button {
+  color: #ffaaaa;
+  border-color: rgba(255, 105, 105, 0.22);
+  background: rgba(255, 105, 105, 0.07);
+  font-size: 16px;
 }
 
 .avatar {
@@ -310,6 +318,105 @@ h2 {
 .tournament-grid {
   display: grid;
   gap: 13px;
+}
+
+.rating-heading {
+  margin-bottom: 12px;
+}
+
+.rating-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.rating-board {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(16, 37, 29, 0.86);
+}
+
+.rating-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  min-height: 66px;
+  padding: 10px 14px;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rating-row:last-child {
+  border-bottom: 0;
+}
+
+.rating-row.current {
+  background: rgba(200, 255, 83, 0.07);
+}
+
+.rating-rank {
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.rating-player {
+  min-width: 0;
+}
+
+.rating-player strong,
+.rating-player small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rating-player small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rating-points {
+  color: var(--lime);
+  font-size: 18px;
+}
+
+.rating-note {
+  margin: 10px 3px 88px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.rating-empty {
+  display: flex;
+  margin-bottom: 88px;
+  padding: 18px;
+  align-items: center;
+  gap: 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  color: var(--muted);
+}
+
+.rating-empty > span {
+  font-size: 27px;
+}
+
+.rating-empty strong,
+.rating-empty small {
+  display: block;
+}
+
+.rating-empty strong {
+  color: var(--ink);
+}
+
+.rating-empty small {
+  margin-top: 3px;
+  line-height: 1.4;
 }
 
 .tournament-card {
@@ -467,7 +574,7 @@ h2 {
 
 .detail-topbar {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   margin-bottom: 25px;
@@ -631,7 +738,13 @@ h2 {
   cursor: pointer;
 }
 
-.match-card.selectable:active {
+.match-card.editable {
+  border-color: rgba(255, 214, 107, 0.2);
+  cursor: pointer;
+}
+
+.match-card.selectable:active,
+.match-card.editable:active {
   transform: scale(0.985);
 }
 
@@ -691,6 +804,10 @@ h2 {
   color: var(--lime);
 }
 
+.match-state.editable {
+  color: var(--gold);
+}
+
 .lane {
   margin-bottom: 28px;
 }
@@ -718,6 +835,23 @@ h2 {
 
 .lane.finals .lane-title::before {
   background: var(--gold);
+}
+
+.lane.finals .bracket-scroll {
+  justify-content: center;
+}
+
+.lane.finals .round-column {
+  flex-basis: min(78vw, 340px);
+}
+
+.grand-final-column .round-heading {
+  color: var(--gold);
+}
+
+.grand-final-column .match-card {
+  border-color: rgba(255, 214, 107, 0.32);
+  box-shadow: 0 14px 34px rgba(255, 214, 107, 0.06);
 }
 
 .standings {
@@ -893,6 +1027,38 @@ h2 {
   line-height: 1.5;
 }
 
+.profile-rating {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 0 20px;
+}
+
+.profile-rating span {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.profile-rating small,
+.profile-rating strong {
+  display: block;
+}
+
+.profile-rating small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.profile-rating strong {
+  margin-top: 4px;
+  color: var(--lime);
+  font-size: 22px;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -1022,6 +1188,11 @@ h2 {
   border-color: rgba(200, 255, 83, 0.35);
 }
 
+.winner-option.current-winner {
+  border-color: rgba(255, 214, 107, 0.28);
+  background: rgba(255, 214, 107, 0.06);
+}
+
 .winner-option span,
 .available-player span {
   color: var(--lime);
@@ -1145,4 +1316,3 @@ h2 {
     transition-duration: 0.01ms !important;
   }
 }
-

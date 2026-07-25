@@ -12,7 +12,14 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 
 from table_tennis_bot.config import Settings
-from table_tennis_bot.database import Database, TOURNAMENT_FORMATS
+from table_tennis_bot.database import (
+    ESTABLISHED_K,
+    INITIAL_RATING,
+    PROVISIONAL_GAMES,
+    PROVISIONAL_K,
+    Database,
+    TOURNAMENT_FORMATS,
+)
 from table_tennis_bot.ui import FORMAT_LABELS
 
 
@@ -122,23 +129,50 @@ async def telegram_auth_middleware(
     init_data = request.headers.get("X-Telegram-Init-Data", "")
 
     if settings.webapp_dev_mode and not init_data:
-        raw_user_id = request.headers.get("X-Dev-User-Id", "900000001")
+        raw_user_id = request.headers.get("X-Dev-User-Id")
         try:
+            local_user_id = int(raw_user_id or "900000001")
+        except ValueError as error:
+            raise PermissionError("Некорректный тестовый пользователь.") from error
+        existing_player = (
+            database.get_player_by_telegram_id(local_user_id)
+            if raw_user_id
+            else database.get_local_authorized_player(settings.admin_ids)
+        )
+        if existing_player and not existing_player["is_test"]:
             user = TelegramWebUser(
-                id=int(raw_user_id),
+                id=int(existing_player["telegram_id"]),
+                display_name=existing_player["display_name"],
+                username=existing_player["username"],
+            )
+            player = existing_player
+        else:
+            user = TelegramWebUser(
+                id=local_user_id,
                 display_name="Локальный администратор",
                 username="local_admin",
             )
-        except ValueError as error:
-            raise PermissionError("Некорректный тестовый пользователь.") from error
+            player = database.register_telegram_player(
+                user.id,
+                user.display_name,
+                user.username,
+                is_test=True,
+            )
     else:
         user = validate_telegram_init_data(init_data, settings.bot_token)
+        player = database.register_telegram_player(
+            user.id,
+            user.display_name,
+            user.username,
+        )
 
-    database.register_telegram_player(user.id, user.display_name, user.username)
     request[USER_KEY] = {
-        "id": user.id,
-        "display_name": user.display_name,
-        "username": user.username,
+        "id": int(player["telegram_id"]),
+        "display_name": player["display_name"],
+        "username": player["username"],
+        "rating": player["rating"],
+        "rated_games": int(player["rated_games"]),
+        "is_authorized": not bool(player["is_test"]),
     }
     return await handler(request)
 
@@ -184,6 +218,13 @@ def _tournament_payload(
             "display_name": player["display_name"],
             "telegram_id": player["telegram_id"],
             "username": player["username"],
+            "is_authorized": (
+                player["telegram_id"] is not None and not bool(player["is_test"])
+            ),
+            "rating": player["rating"],
+            "rated_games": int(player["rated_games"]),
+            "rating_delta": player["tournament_rating_delta"],
+            "tournament_rated_games": player["tournament_rated_games"],
             "seed": int(player["seed"]),
             "losses": int(player["losses"]),
         }
@@ -194,6 +235,8 @@ def _tournament_payload(
             "id": int(match["id"]),
             "round_number": int(match["round_number"]),
             "position": int(match["position"]),
+            "bracket_round": int(match["bracket_round"]),
+            "bracket_position": int(match["bracket_position"]),
             "bracket": match["bracket"],
             "player1_id": match["player1_id"],
             "player1_name": match["player1_name"],
@@ -236,10 +279,31 @@ async def bootstrap(request: web.Request) -> web.Response:
         _tournament_summary(tournament, user["id"], settings)
         for tournament in database.list_tournaments(limit=100)
     ]
+    ratings = [
+        {
+            "rank": rank,
+            "player_id": int(player["id"]),
+            "telegram_id": int(player["telegram_id"]),
+            "display_name": player["display_name"],
+            "username": player["username"],
+            "rating": int(player["rating"]),
+            "rated_games": int(player["rated_games"]),
+            "is_current": int(player["telegram_id"]) == user["id"],
+        }
+        for rank, player in enumerate(database.list_rating(limit=100), start=1)
+    ]
     return web.json_response(
         {
             "user": user,
             "tournaments": tournaments,
+            "ratings": ratings,
+            "rating_system": {
+                "name": "Tournament Elo",
+                "initial": INITIAL_RATING,
+                "provisional_games": PROVISIONAL_GAMES,
+                "provisional_k": PROVISIONAL_K,
+                "established_k": ESTABLISHED_K,
+            },
             "formats": [
                 {"id": format_id, "label": FORMAT_LABELS[format_id]}
                 for format_id in (
@@ -263,6 +327,14 @@ async def tournament_detail(request: web.Request) -> web.Response:
             request[USER_KEY]["id"],
         )
     )
+
+
+async def delete_tournament(request: web.Request) -> web.Response:
+    tournament_id = int(request.match_info["tournament_id"])
+    _managed_tournament(request, tournament_id)
+    if not request.app[DATABASE_KEY].delete_tournament(tournament_id):
+        raise LookupError("Турнир не найден.")
+    return web.json_response({"deleted": True, "tournament_id": tournament_id})
 
 
 async def create_tournament(request: web.Request) -> web.Response:
@@ -399,6 +471,27 @@ async def record_winner(request: web.Request) -> web.Response:
     )
 
 
+async def change_winner(request: web.Request) -> web.Response:
+    match_id = int(request.match_info["match_id"])
+    database = request.app[DATABASE_KEY]
+    match = database.get_match(match_id)
+    if not match:
+        raise LookupError("Матч не найден.")
+    _managed_tournament(request, int(match["tournament_id"]))
+    body = await request.json()
+    if body.get("winner_id") is None:
+        raise ValueError("Выберите победителя матча.")
+    tournament_id = database.change_winner(match_id, int(body["winner_id"]))
+    return web.json_response(
+        _tournament_payload(
+            database,
+            request.app[SETTINGS_KEY],
+            tournament_id,
+            request[USER_KEY]["id"],
+        )
+    )
+
+
 async def rename_profile(request: web.Request) -> web.Response:
     body = await request.json()
     database = request.app[DATABASE_KEY]
@@ -413,6 +506,9 @@ async def rename_profile(request: web.Request) -> web.Response:
                 "id": int(player["telegram_id"]),
                 "display_name": player["display_name"],
                 "username": player["username"],
+                "rating": player["rating"],
+                "rated_games": int(player["rated_games"]),
+                "is_authorized": not bool(player["is_test"]),
             }
         }
     )
@@ -430,6 +526,10 @@ def create_web_application(database: Database, settings: Settings) -> web.Applic
     app.router.add_get("/api/bootstrap", bootstrap)
     app.router.add_post("/api/tournaments", create_tournament)
     app.router.add_get("/api/tournaments/{tournament_id:\\d+}", tournament_detail)
+    app.router.add_delete(
+        "/api/tournaments/{tournament_id:\\d+}",
+        delete_tournament,
+    )
     app.router.add_get(
         "/api/tournaments/{tournament_id:\\d+}/available-players",
         available_players,
@@ -447,6 +547,7 @@ def create_web_application(database: Database, settings: Settings) -> web.Applic
         start_tournament,
     )
     app.router.add_post("/api/matches/{match_id:\\d+}/winner", record_winner)
+    app.router.add_patch("/api/matches/{match_id:\\d+}/winner", change_winner)
     app.router.add_patch("/api/profile", rename_profile)
     app.router.add_static("/assets/", WEB_ROOT, show_index=False)
     return app
