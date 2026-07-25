@@ -120,6 +120,8 @@ try {
                 "--no-autoupdate",
                 "--edge-ip-version",
                 "4",
+                "--protocol",
+                "http2",
                 "--retries",
                 "3",
                 "--url",
