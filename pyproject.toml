@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "table-tennis-tournament-bot"
+version = "0.1.0"
+description = "Telegram bot for managing table tennis single-elimination tournaments"
+requires-python = ">=3.10"
+dependencies = [
+    "aiogram==3.30.0",
+    "aiohttp==3.14.3",
+]
+
+[project.scripts]
+table-tennis-bot = "table_tennis_bot.main:run"
+
+[tool.setuptools.packages.find]
+include = ["table_tennis_bot*"]
+
+[tool.setuptools.package-data]
+table_tennis_bot = ["web/*.html", "web/*.css", "web/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
